@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="theme-color" content="#0f766e">
+<title>Stock Scan</title>
+<script src="html5-qrcode.min.js"></script>
+<style>
+:root{
+  --bg:#f2f4f0;--card:#fff;--ink:#14231f;--mut:#667570;--line:#d5dbd6;
+  --in:#0f766e;--out:#c2410c;--acc:var(--in);--bad:#b91c1c;
+  --safe-top:env(safe-area-inset-top,0px);--safe-bot:env(safe-area-inset-bottom,0px);
+}
+@media(prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){--bg:#101816;--card:#18221f;--ink:#e8efec;--mut:#8fa09a;--line:#2b3834;--in:#2dd4bf;--out:#fb923c}
+}
+:root[data-theme="dark"]{--bg:#101816;--card:#18221f;--ink:#e8efec;--mut:#8fa09a;--line:#2b3834;--in:#2dd4bf;--out:#fb923c}
+*{box-sizing:border-box}
+html{scroll-padding-top:var(--safe-top)}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;max-width:560px;margin:0 auto;padding-bottom:calc(90px + var(--safe-bot))}
+body[data-m=out]{--acc:var(--out)}
+nav{position:sticky;top:var(--safe-top);z-index:5;display:flex;gap:6px;padding:10px;background:var(--bg)}
+nav button{flex:1;padding:12px 4px;border:2px solid var(--line);background:var(--card);color:var(--ink);font:inherit;font-weight:700;border-radius:10px}
+nav button.on{background:var(--acc);border-color:var(--acc);color:#fff}
+#scan{margin:0 10px 10px;background:var(--card);border:2px solid var(--acc);border-radius:12px;padding:10px}
+#reader{width:100%;min-height:0;border-radius:8px;overflow:hidden;background:#000}
+#reader:empty{display:none}
+.row{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+input,select{flex:1;min-width:0;padding:12px;border:2px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:inherit}
+.btn{padding:12px 16px;border:0;border-radius:10px;background:var(--acc);color:#fff;font:inherit;font-weight:700;cursor:pointer}
+.btn.g{background:transparent;color:var(--ink);border:2px solid var(--line)}
+.btn.bad{background:transparent;color:var(--bad);border:2px solid var(--bad)}
+#view{padding:0 10px}
+.big{background:var(--card);border-radius:12px;padding:14px;margin-bottom:10px;border-left:8px solid var(--acc)}
+.big b{display:block;font-size:48px;line-height:1;font-variant-numeric:tabular-nums}
+.big span{color:var(--mut);font-size:14px}
+h3{margin:18px 2px 6px;font-size:15px;display:flex;justify-content:space-between;align-items:center}
+.it{display:flex;align-items:center;gap:8px;background:var(--card);border-radius:10px;padding:10px 12px;margin-bottom:6px}
+.it .n{flex:1;min-width:0}.it .n small{display:block;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.q{font-weight:800;font-size:18px;min-width:28px;text-align:center;font-variant-numeric:tabular-nums}
+.sm{width:36px;height:36px;border-radius:50%;border:2px solid var(--line);background:transparent;color:var(--ink);font:700 18px/1 inherit;flex-shrink:0}
+.empty{color:var(--mut);padding:14px 4px}
+#bar{position:fixed;left:0;right:0;bottom:0;padding:10px 10px calc(10px + var(--safe-bot));background:var(--bg);max-width:560px;margin:0 auto;display:none;z-index:4}
+#bar .btn{width:100%;padding:16px;font-size:18px}
+#sheet{position:fixed;inset:0;background:#000a;display:none;align-items:flex-end;z-index:9}
+#sheet>div{background:var(--card);width:100%;max-width:560px;margin:0 auto;border-radius:16px 16px 0 0;padding:16px 16px calc(16px + var(--safe-bot));max-height:90vh;overflow-y:auto}
+#sheet p{margin:0 0 8px;color:var(--mut);word-break:break-all;font-size:13px}
+#sheet input,#sheet select{width:100%;margin-bottom:8px;flex:none}
+#toast{position:fixed;left:50%;top:calc(70px + var(--safe-top));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:99px;font-weight:600;z-index:10;display:none;max-width:90%;text-align:center}
+#toast.bad{background:var(--bad);color:#fff}
+.qty-row{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.qty-row button{padding:8px 14px;border-radius:8px;border:2px solid var(--line);background:var(--bg);font-weight:700}
+.qty-row button.on{background:var(--acc);border-color:var(--acc);color:#fff}
+.hist{font-size:13px;color:var(--mut);padding:6px 0;border-bottom:1px solid var(--line)}
+.hist b{color:var(--ink)}
+.low{color:var(--bad);font-weight:700}
+.search{width:100%;margin-bottom:10px}
+</style>
+</head>
+<body data-m="in">
+<nav>
+  <button data-t="in" class="on">Entrada</button>
+  <button data-t="out">Venda</button>
+  <button data-t="stock">Stock</button>
+  <button data-t="hist">Histórico</button>
+</nav>
+
+<section id="scan">
+  <div id="reader"></div>
+  <div class="row">
+    <button class="btn" id="cam">Ligar câmara</button>
+    <button class="btn g" id="pic">Tirar foto</button>
+  </div>
+  <input type="file" id="fi" accept="image/*" capture="environment" hidden>
+  <div id="reader-tmp" style="display:none"></div>
+  <div class="row">
+    <input id="man" placeholder="Ou escreve o código" inputmode="numeric">
+    <button class="btn g" id="manb">OK</button>
+  </div>
+  <div class="qty-row" id="qtyrow">
+    <button data-q="1" class="on">×1</button>
+    <button data-q="2">×2</button>
+    <button data-q="6">×6</button>
+    <button data-q="12">×12</button>
+    <input id="qman" type="number" min="1" max="999" placeholder="Qtd" style="width:70px;padding:8px;flex:none">
+  </div>
+</section>
+
+<main id="view"></main>
+<div id="bar"><button class="btn" id="sell">Confirmar venda</button></div>
+
+<!-- Sheet: produto novo ou editar -->
+<div id="sheet"><div>
+  <b id="shtitle">Produto novo</b>
+  <p id="shc"></p>
+  <input id="sn" placeholder="Nome (ex: Gin Beefeater 750ml)">
+  <input id="sc" list="cl" placeholder="Categoria (ex: Gin)">
+  <datalist id="cl"></datalist>
+  <input id="sp" type="number" min="0" step="1" placeholder="Preço venda (Kz) — opcional">
+  <input id="smin" type="number" min="0" step="1" placeholder="Alerta stock baixo (mínimo) — opcional">
+  <div class="row">
+    <button class="btn g" id="sx">Cancelar</button>
+    <button class="btn" id="so" style="flex:1">Guardar</button>
+  </div>
+</div></div>
+
+<input type="file" id="impf" accept="application/json,.json" hidden>
+<div id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+
+let S = { p: {}, h: [], lastSale: null }; // p = produtos, h = histórico, lastSale = para desfazer
+let tab = 'in', cat = '', cart = {}, qr = null, running = false, pending = null, editCode = null;
+let last = '', lastT = 0, qty = 1, soundOn = true;
+
+try {
+  const d = JSON.parse(localStorage.getItem('stk') || '{"p":{},"h":[]}');
+  S.p = d.p || {};
+  S.h = d.h || [];
+  S.lastSale = d.lastSale || null;
+} catch(e) {}
+
+const save = () => {
+  try { localStorage.setItem('stk', JSON.stringify(S)); } catch(e) {}
+  // auto-backup silencioso se Capacitor
+  try {
+    const P = window.Capacitor && Capacitor.Plugins;
+    if (P && P.Filesystem) {
+      P.Filesystem.writeFile({
+        path: 'stock-autobackup.json',
+        data: JSON.stringify(S),
+        directory: 'DATA',
+        encoding: 'utf8'
+      }).catch(() => {});
+    }
+  } catch(e) {}
+};
+
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const cats = () => [...new Set(Object.values(S.p).map(x => x.c))].sort((a,b) => a.localeCompare(b));
+const tot = c => Object.values(S.p).filter(x => x.c === c).reduce((a,x) => a + x.q, 0);
+const now = () => Date.now();
+
+let tt;
+function toast(m, bad) {
+  const t = $('#toast');
+  t.textContent = m;
+  t.className = bad ? 'bad' : '';
+  t.style.display = 'block';
+  clearTimeout(tt);
+  tt = setTimeout(() => t.style.display = 'none', bad ? 5000 : 1800);
+}
+
+function beep() {
+  if (!soundOn) return;
+  try {
+    const a = new (window.AudioContext || window.webkitAudioContext)();
+    const o = a.createOscillator();
+    o.frequency.value = 880;
+    o.connect(a.destination);
+    o.start();
+    setTimeout(() => { o.stop(); a.close(); }, 90);
+  } catch(e) {}
+  try { navigator.vibrate && navigator.vibrate(40); } catch(e) {}
+}
+
+function getQty() {
+  const m = parseInt($('#qman').value, 10);
+  if (m > 0) return m;
+  return qty;
+}
+
+async function camToggle() {
+  if (running) {
+    await qr.stop();
+    running = false;
+    $('#reader').innerHTML = '';
+  } else {
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw { name: 'NoMedia' };
+      const st = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } } });
+      st.getTracks().forEach(t => t.stop());
+      let cam = { facingMode: 'environment' };
+      try {
+        const cs = await Html5Qrcode.getCameras();
+        const bk = cs.find(c => /back|rear|traseira|environment/i.test(c.label)) || cs[cs.length - 1];
+        if (bk) cam = bk.id;
+      } catch(x) {}
+      qr = qr || new Html5Qrcode('reader', { useBarCodeDetectorIfSupported: true });
+      const cfg = { fps: 10, qrbox: { width: 250, height: 150 } };
+      try { await qr.start(cam, cfg, onScan, () => {}); }
+      catch(x) { await qr.start({ facingMode: 'environment' }, cfg, onScan, () => {}); }
+      running = true;
+    } catch(e) {
+      const n = (e && e.name) || '', m = String((e && e.message) || e || '');
+      toast(
+        n === 'NoMedia' || !window.isSecureContext
+          ? 'Este navegador/ecrã não deixa usar a câmera. Abre no Chrome ou usa "Tirar foto".'
+          : n === 'NotAllowedError' || /denied|permission/i.test(m)
+          ? 'Câmera bloqueada. Permite nas definições do site, ou abre no Chrome (fora do Claude).'
+          : n === 'NotFoundError' ? 'Nenhuma câmera encontrada.'
+          : n === 'NotReadableError' ? 'Câmera em uso por outra app. Fecha-a e tenta de novo.'
+          : 'Erro da câmera: ' + (n || m.slice(0, 60)),
+        1
+      );
+    }
+  }
+  $('#cam').textContent = running ? 'Desligar câmara' : 'Ligar câmara';
+}
+
+function onScan(code) {
+  const n = Date.now();
+  // anti-duplicado curto (só 600ms) — quantidade resolve o resto
+  if (pending || (code === last && n - lastT < 600)) return;
+  last = code;
+  lastT = n;
+  beep();
+  handle(code);
+}
+
+function handle(code) {
+  code = String(code).trim();
+  if (!code) return;
+  const p = S.p[code];
+  const q = getQty();
+
+  if (tab === 'in') {
+    if (p) {
+      p.q += q;
+      save();
+      addHist('in', code, p.n, q);
+      toast(p.n + '  +' + q + ' → ' + p.q);
+      render();
+    } else {
+      pending = code;
+      editCode = null;
+      $('#shtitle').textContent = 'Produto novo';
+      $('#shc').textContent = 'Código: ' + code;
+      $('#sn').value = '';
+      $('#sc').value = cat;
+      $('#sp').value = '';
+      $('#smin').value = '';
+      $('#cl').innerHTML = cats().map(c => '<option value="' + esc(c) + '">').join('');
+      $('#sheet').style.display = 'flex';
+      setTimeout(() => $('#sn').focus(), 50);
+    }
+  } else if (tab === 'out') {
+    if (!p) return toast('Código não registado: ' + code, 1);
+    cart[code] = (cart[code] || 0) + q;
+    toast(p.n + '  ×' + cart[code]);
+    render();
+  }
+}
+
+function closeSheet() {
+  pending = null;
+  editCode = null;
+  $('#sheet').style.display = 'none';
+}
+
+$('#sx').onclick = closeSheet;
+
+$('#so').onclick = () => {
+  const n = $('#sn').value.trim();
+  const c = $('#sc').value.trim();
+  if (!n || !c) return toast('Preenche nome e categoria', 1);
+  const price = parseFloat($('#sp').value) || 0;
+  const min = parseInt($('#smin').value, 10) || 0;
+
+  if (editCode) {
+    // editar existente
+    const p = S.p[editCode];
+    if (!p) return closeSheet();
+    p.n = n;
+    p.c = c;
+    p.price = price;
+    p.min = min;
+    save();
+    closeSheet();
+    toast('Produto atualizado');
+    render();
+    return;
+  }
+
+  // novo
+  const q = getQty();
+  S.p[pending] = { n, c, q, price, min };
+  cat = c;
+  addHist('in', pending, n, q);
+  save();
+  closeSheet();
+  toast(n + ' registado → ' + q);
+  render();
+};
+
+function addHist(type, code, name, qty) {
+  S.h.unshift({ t: now(), type, code, name, qty });
+  if (S.h.length > 300) S.h.length = 300; // limitar
+}
+
+function openEdit(code) {
+  const p = S.p[code];
+  if (!p) return;
+  editCode = code;
+  pending = null;
+  $('#shtitle').textContent = 'Editar produto';
+  $('#shc').textContent = 'Código: ' + code;
+  $('#sn').value = p.n;
+  $('#sc').value = p.c;
+  $('#sp').value = p.price || '';
+  $('#smin').value = p.min || '';
+  $('#cl').innerHTML = cats().map(c => '<option value="' + esc(c) + '">').join('');
+  $('#sheet').style.display = 'flex';
+}
+
+// quantidade UI
+$$('#qtyrow button[data-q]').forEach(b => {
+  b.onclick = () => {
+    qty = +b.dataset.q;
+    $$('#qtyrow button[data-q]').forEach(x => x.classList.toggle('on', x === b));
+    $('#qman').value = '';
+  };
+});
+$('#qman').oninput = () => {
+  $$('#qtyrow button[data-q]').forEach(x => x.classList.remove('on'));
+};
+
+$('#manb').onclick = () => { handle($('#man').value); $('#man').value = ''; };
+$('#man').onkeydown = e => { if (e.key === 'Enter') $('#manb').click(); };
+$('#cam').onclick = camToggle;
+$('#pic').onclick = () => $('#fi').click();
+$('#fi').onchange = async e => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  try {
+    const q = new Html5Qrcode('reader-tmp', { useBarCodeDetectorIfSupported: true });
+    const r = await q.scanFile(f, false);
+    try { q.clear(); } catch(x) {}
+    beep();
+    handle(r);
+  } catch(err) {
+    toast('Não li o código. Tenta mais perto e com luz.', 1);
+  }
+};
+
+try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch(e) {}
+
+async function exportar() {
+  const name = 'stock-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+  const txt = JSON.stringify(S);
+  const P = window.Capacitor && Capacitor.Plugins;
+  try {
+    if (P && P.Filesystem && P.Share) {
+      const r = await P.Filesystem.writeFile({ path: name, data: txt, directory: 'CACHE', encoding: 'utf8' });
+      await P.Share.share({ title: 'Backup do stock', url: r.uri });
+    } else {
+      const l = document.createElement('a');
+      l.href = URL.createObjectURL(new Blob([txt], { type: 'application/json' }));
+      l.download = name;
+      l.click();
+    }
+    toast('Backup pronto');
+  } catch(e) {
+    toast('Não consegui exportar', 1);
+  }
+}
+
+function exportCSV() {
+  const rows = [['codigo', 'nome', 'categoria', 'quantidade', 'preco', 'minimo']];
+  Object.entries(S.p).forEach(([code, p]) => {
+    rows.push([code, p.n, p.c, p.q, p.price || 0, p.min || 0]);
+  });
+  const csv = rows.map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(',')).join('\n');
+  const name = 'stock-' + new Date().toISOString().slice(0, 10) + '.csv';
+  const l = document.createElement('a');
+  l.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  l.download = name;
+  l.click();
+  toast('CSV exportado');
+}
+
+$('#impf').onchange = e => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const d = JSON.parse(r.result);
+      if (!d || typeof d.p !== 'object') throw 0;
+      if (confirm('Importar vai substituir o stock atual. Continuar?')) {
+        S = { p: d.p, h: d.h || [], lastSale: d.lastSale || null };
+        save();
+        toast('Backup importado ✓');
+        render();
+      }
+    } catch(x) {
+      toast('Ficheiro inválido', 1);
+    }
+  };
+  r.readAsText(f);
+};
+
+document.querySelectorAll('nav button').forEach(b => {
+  b.onclick = () => {
+    tab = b.dataset.t;
+    document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
+    document.body.dataset.m = tab;
+    $('#scan').style.display = (tab === 'stock' || tab === 'hist') ? 'none' : 'block';
+    if ((tab === 'stock' || tab === 'hist') && running) camToggle();
+    render();
+  };
+});
+
+function item(code, p, right) {
+  const low = (p.min > 0 && p.q <= p.min) ? ' low' : '';
+  return '<div class="it"><div class="n' + low + '">' + esc(p.n) +
+    '<small>' + esc(code) + (p.price ? ' · ' + p.price + ' Kz' : '') + '</small></div>' + right + '</div>';
+}
+
+function ctl(code, q, a) {
+  return '<button class="sm" data-a="' + a + '" data-c="' + esc(code) + '" data-d="-1">−</button>' +
+    '<span class="q">' + q + '</span>' +
+    '<button class="sm" data-a="' + a + '" data-c="' + esc(code) + '" data-d="1">+</button>';
+}
+
+function render() {
+  const v = $('#view'), bar = $('#bar');
+  bar.style.display = 'none';
+
+  if (tab === 'in') {
+    const list = Object.entries(S.p).filter(([, p]) => p.c === cat);
+    v.innerHTML =
+      '<div class="row" style="margin:0 0 10px">' +
+        '<input id="ci" list="cl2" placeholder="Categoria atual (ex: Gin)" value="' + esc(cat) + '">' +
+        '<datalist id="cl2">' + cats().map(c => '<option value="' + esc(c) + '">').join('') + '</datalist>' +
+      '</div>' +
+      (cat ? '<div class="big"><span>Total em ' + esc(cat) + '</span><b>' + tot(cat) + '</b></div>' : '') +
+      (list.length
+        ? list.map(([c, p]) => item(c, p, '<span class="q">' + p.q + '</span>')).join('')
+        : '<div class="empty">' + (cat ? 'Nada nesta categoria ainda. Scaneia um produto.' : 'Escolhe a categoria e começa a scanear. Produto novo? A app pergunta o nome.') + '</div>');
+    const ci = $('#ci');
+    if (ci) ci.onchange = e => { cat = e.target.value.trim(); render(); };
+
+  } else if (tab === 'out') {
+    const entries = Object.entries(cart);
+    const all = Object.entries(S.p).sort((a, b) => a[1].n.localeCompare(b[1].n));
+    let totalMoney = 0;
+    entries.forEach(([c, n]) => {
+      const p = S.p[c];
+      if (p && p.price) totalMoney += p.price * n;
+    });
+    v.innerHTML =
+      '<div class="row" style="margin:0 0 10px">' +
+        '<select id="ms"><option value="">Escolher produto à mão…</option>' +
+        all.map(([c, p]) => '<option value="' + esc(c) + '">' + esc(p.n) + ' (' + p.q + ')</option>').join('') +
+        '</select><button class="btn g" data-a="madd">Add</button>' +
+      '</div>' +
+      (entries.length
+        ? entries.map(([c, n]) => item(c, S.p[c], ctl(c, n, 'cadj'))).join('') +
+          '<button class="btn g" data-a="clr" style="width:100%;margin-top:6px">Limpar lista</button>' +
+          (totalMoney > 0 ? '<div class="big" style="margin-top:10px"><span>Total desta venda</span><b>' + totalMoney.toLocaleString('pt') + ' Kz</b></div>' : '')
+        : '<div class="empty">Scaneia os produtos a vender. Cada leitura soma à lista; só sai do stock quando confirmares.</div>');
+    if (entries.length) {
+      bar.style.display = 'block';
+      const totalQ = entries.reduce((a, [, n]) => a + n, 0);
+      $('#sell').textContent = 'Confirmar venda (' + totalQ + (totalMoney ? ' · ' + totalMoney.toLocaleString('pt') + ' Kz' : '') + ')';
+    }
+
+  } else if (tab === 'stock') {
+    const cs = cats();
+    const search = '';
+    let html = '<input class="search" id="search" placeholder="Pesquisar nome ou código…">';
+    if (cs.length) {
+      cs.forEach(c => {
+        const items = Object.entries(S.p).filter(([, p]) => p.c === c);
+        html += '<h3><span>' + esc(c) + '</span><span>' + tot(c) + '</span></h3>';
+        html += items.map(([k, p]) =>
+          item(k, p, ctl(k, p.q, 'adj') +
+            '<button class="sm" data-a="edit" data-c="' + esc(k) + '" title="Editar">✎</button>' +
+            '<button class="sm" data-a="del" data-c="' + esc(k) + '" style="border-color:transparent">✕</button>')
+        ).join('');
+      });
+    } else {
+      html += '<div class="empty">Stock vazio. Vai a Entrada e scaneia os produtos.</div>';
+    }
+    html += '<h3><span>Dados</span></h3><div class="row" style="flex-wrap:wrap">' +
+      '<button class="btn g" data-a="exp">Exportar backup</button>' +
+      '<button class="btn g" data-a="csv">Exportar CSV</button>' +
+      '<button class="btn g" data-a="imp">Importar</button>' +
+      '<button class="btn g" data-a="togglesound">' + (soundOn ? '🔊 Som ligado' : '🔇 Som desligado') + '</button>' +
+      (S.lastSale ? '<button class="btn g" data-a="undo">Desfazer última venda</button>' : '') +
+      '<button class="btn bad" data-a="wipe">Apagar tudo</button></div>';
+    v.innerHTML = html;
+    const se = $('#search');
+    if (se) {
+      se.oninput = () => {
+        const q = se.value.trim().toLowerCase();
+        $$('.it').forEach(el => {
+          const txt = el.textContent.toLowerCase();
+          el.style.display = !q || txt.includes(q) ? '' : 'none';
+        });
+      };
+    }
+
+  } else if (tab === 'hist') {
+    let html = '';
+    if (S.lastSale) {
+      html += '<button class="btn g" data-a="undo" style="width:100%;margin-bottom:10px">Desfazer última venda</button>';
+    }
+    if (!S.h.length) {
+      html += '<div class="empty">Ainda sem movimentos.</div>';
+    } else {
+      S.h.slice(0, 100).forEach(h => {
+        const d = new Date(h.t);
+        const when = d.toLocaleDateString('pt') + ' ' + d.toLocaleTimeString('pt', { hour: '2-digit', minute: '2-digit' });
+        const tipo = h.type === 'in' ? 'Entrada' : 'Venda';
+        html += '<div class="hist"><b>' + tipo + '</b> · ' + esc(h.name) + ' ×' + h.qty +
+          '<br><small>' + when + ' · ' + esc(h.code) + '</small></div>';
+      });
+    }
+    v.innerHTML = html;
+  }
+}
+
+$('#view').onclick = e => {
+  const b = e.target.closest('[data-a]');
+  if (!b) return;
+  const a = b.dataset.a, c = b.dataset.c, d = +b.dataset.d;
+
+  if (a === 'adj') {
+    S.p[c].q = Math.max(0, S.p[c].q + d);
+    save();
+  } else if (a === 'del') {
+    if (confirm('Apagar ' + S.p[c].n + '?')) {
+      delete S.p[c];
+      save();
+    }
+  } else if (a === 'edit') {
+    openEdit(c);
+    return;
+  } else if (a === 'cadj') {
+    cart[c] = (cart[c] || 0) + d;
+    if (cart[c] <= 0) delete cart[c];
+  } else if (a === 'clr') {
+    cart = {};
+  } else if (a === 'exp') {
+    exportar();
+    return;
+  } else if (a === 'csv') {
+    exportCSV();
+    return;
+  } else if (a === 'imp') {
+    $('#impf').click();
+    return;
+  } else if (a === 'wipe') {
+    if (confirm('Apagar TODOS os produtos, quantidades e histórico? Não dá para desfazer.')) {
+      S = { p: {}, h: [], lastSale: null };
+      cart = {};
+      try { localStorage.removeItem('stk'); } catch(x) {}
+      toast('Tudo apagado');
+    }
+  } else if (a === 'madd') {
+    const k = $('#ms').value;
+    if (k) cart[k] = (cart[k] || 0) + getQty();
+  } else if (a === 'togglesound') {
+    soundOn = !soundOn;
+  } else if (a === 'undo') {
+    if (!S.lastSale) return;
+    if (!confirm('Desfazer a última venda e devolver o stock?')) return;
+    S.lastSale.items.forEach(([code, n]) => {
+      if (S.p[code]) S.p[code].q += n;
+    });
+    // remove do histórico as entradas daquela venda
+    S.h = S.h.filter(h => h.t !== S.lastSale.t);
+    S.lastSale = null;
+    save();
+    toast('Venda desfeita ✓');
+  }
+  render();
+};
+
+$('#sell').onclick = () => {
+  const e = Object.entries(cart);
+  const bad = e.filter(([c, n]) => !S.p[c] || S.p[c].q < n);
+  if (bad.length) {
+    return toast('Stock insuficiente: ' + bad.map(([c]) => S.p[c] ? S.p[c].n : c).join(', '), 1);
+  }
+  const t = now();
+  e.forEach(([c, n]) => {
+    S.p[c].q -= n;
+    addHist('out', c, S.p[c].n, n);
+  });
+  // guardar para desfazer
+  S.lastSale = { t, items: e };
+  save();
+  cart = {};
+  toast('Venda registada ✓');
+  render();
+};
+
+render();
+</script>
+</body>
+</html>
