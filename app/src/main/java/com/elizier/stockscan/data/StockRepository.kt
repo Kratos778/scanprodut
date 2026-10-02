@@ -11,15 +11,36 @@ class StockRepository(context: Context) {
     private val historyDao = db.historyDao()
     private val gson = Gson()
 
-    val products: Flow<List<Product>> = productDao.getAll()
-    val categories: Flow<List<String>> = productDao.getCategories()
+    val allProducts: Flow<List<Product>> = productDao.getAll()
+    val available: Flow<List<Product>> = productDao.getAvailable()
+    val sold: Flow<List<Product>> = productDao.getSold()
     val history: Flow<List<HistoryEntry>> = historyDao.getRecent()
+    val availableCount: Flow<Int> = productDao.countAvailable()
 
     suspend fun getProduct(code: String) = productDao.getByCode(code)
 
-    suspend fun upsertProduct(p: Product) = productDao.upsert(p)
+    /**
+     * Regista produto NOVO. Falha se o código já existir (ABORT).
+     * @return true se inseriu, false se código já existia
+     */
+    suspend fun registerProduct(p: Product): Boolean {
+        val existing = productDao.getByCode(p.code)
+        if (existing != null) return false
+        return try {
+            productDao.insert(p)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
 
-    suspend fun adjustQuantity(code: String, delta: Int) = productDao.adjustQty(code, delta)
+    suspend fun updateProduct(p: Product) = productDao.update(p)
+
+    /** Marca como vendido (lista negra). Só funciona se ainda estiver available. */
+    suspend fun markSold(code: String, customer: String): Boolean {
+        val rows = productDao.markSold(code, System.currentTimeMillis(), customer)
+        return rows > 0
+    }
 
     suspend fun deleteProduct(p: Product) = productDao.delete(p)
 
@@ -34,11 +55,10 @@ class StockRepository(context: Context) {
         totalKz: Int = 0,
         customerName: String = ""
     ) {
-        val json = gson.toJson(items)
         historyDao.insert(HistoryEntry(
             timestamp = System.currentTimeMillis(),
             type = type,
-            itemsJson = json,
+            itemsJson = gson.toJson(items),
             totalKz = totalKz,
             customerName = customerName.trim()
         ))
@@ -49,18 +69,15 @@ class StockRepository(context: Context) {
         return try { gson.fromJson(json, type) } catch (e: Exception) { emptyList() }
     }
 
+    /** Desfazer última venda: volta os códigos para available */
     suspend fun undoLastSale(): Boolean {
         val last = historyDao.getLastSale() ?: return false
         val items = parseItems(last.itemsJson)
-        items.forEach { item ->
-            productDao.adjustQty(item.code, item.qty)
+        for (item in items) {
+            val p = productDao.getByCode(item.code) ?: continue
+            productDao.update(p.copy(status = "available", soldAt = null, soldTo = null))
         }
         historyDao.delete(last)
         return true
-    }
-
-    fun exportJson(products: List<Product>, history: List<HistoryEntry>): String {
-        val map = mapOf("products" to products, "history" to history)
-        return gson.toJson(map)
     }
 }
