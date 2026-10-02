@@ -5,11 +5,11 @@ import androidx.room.PrimaryKey
 
 @Entity(tableName = "products")
 data class Product(
-    @PrimaryKey val code: String,
+    @PrimaryKey val code: String,   // código de barras = único, nunca duplica
     val name: String,
     val category: String,
     var quantity: Int = 0,
-    val price: Int = 0,       // Kz
+    val price: Int = 0,             // Kz
     val minStock: Int = 0
 )
 
@@ -17,9 +17,10 @@ data class Product(
 data class HistoryEntry(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val timestamp: Long,
-    val type: String,         // "in" ou "out"
-    val itemsJson: String,    // JSON da lista de itens
-    val totalKz: Int = 0
+    val type: String,               // "in" ou "out"
+    val itemsJson: String,
+    val totalKz: Int = 0,
+    val customerName: String = ""   // nome do cliente (só em vendas)
 )
 
 data class CartItem(
