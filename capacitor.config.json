@@ -1,0 +1,6 @@
+{
+  "appId": "com.kaleb.stockscan",
+  "appName": "Stock Scan",
+  "webDir": "www",
+  "server": { "androidScheme": "https" }
+}
