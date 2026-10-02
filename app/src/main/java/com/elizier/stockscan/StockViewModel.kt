@@ -25,11 +25,12 @@ class StockViewModel(app: Application) : AndroidViewModel(app) {
     var pendingCode by mutableStateOf("")
     var showNewProduct by mutableStateOf(false)
     var editProduct by mutableStateOf<Product?>(null)
+    var showCustomerDialog by mutableStateOf(false)
 
     suspend fun handleScan(code: String, isSale: Boolean) {
         val p = repo.getProduct(code)
         if (isSale) {
-            if (p == null) return
+            if (p == null) return // código não registado — não adiciona
             val existing = _cart.value.toMutableList()
             val idx = existing.indexOfFirst { it.code == code }
             if (idx >= 0) {
@@ -39,6 +40,7 @@ class StockViewModel(app: Application) : AndroidViewModel(app) {
             }
             _cart.value = existing
         } else {
+            // Entrada: se o código JÁ existe → só aumenta quantidade (nunca cria duplicado)
             if (p != null) {
                 repo.adjustQuantity(code, scanQty)
                 repo.addHistory("in", listOf(HistItem(code, p.name, scanQty, p.price)))
@@ -50,6 +52,15 @@ class StockViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     suspend fun saveNewProduct(name: String, cat: String, price: Int, min: Int) {
+        // Código é PrimaryKey → Room impede duplicados automaticamente
+        val existing = repo.getProduct(pendingCode)
+        if (existing != null) {
+            // já existe — só actualiza qty
+            repo.adjustQuantity(pendingCode, scanQty)
+            showNewProduct = false
+            pendingCode = ""
+            return
+        }
         val p = Product(pendingCode, name, cat, scanQty, price, min)
         repo.upsertProduct(p)
         repo.addHistory("in", listOf(HistItem(pendingCode, name, scanQty, price)))
@@ -78,7 +89,10 @@ class StockViewModel(app: Application) : AndroidViewModel(app) {
         _cart.value = emptyList()
     }
 
-    suspend fun confirmSale(): Boolean {
+    /** Chamar depois de o utilizador preencher o nome do cliente */
+    suspend fun confirmSale(customerName: String): Boolean {
+        val name = customerName.trim()
+        if (name.isEmpty()) return false
         val items = _cart.value
         if (items.isEmpty()) return false
         for (item in items) {
@@ -92,8 +106,9 @@ class StockViewModel(app: Application) : AndroidViewModel(app) {
             histItems.add(HistItem(item.code, item.name, item.qty, item.price))
             total += item.qty * item.price
         }
-        repo.addHistory("out", histItems, total)
+        repo.addHistory("out", histItems, total, name)
         _cart.value = emptyList()
+        showCustomerDialog = false
         return true
     }
 
