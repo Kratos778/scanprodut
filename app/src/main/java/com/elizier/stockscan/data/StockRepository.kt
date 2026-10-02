@@ -28,13 +28,19 @@ class StockRepository(context: Context) {
         historyDao.deleteAll()
     }
 
-    suspend fun addHistory(type: String, items: List<HistItem>, totalKz: Int = 0) {
+    suspend fun addHistory(
+        type: String,
+        items: List<HistItem>,
+        totalKz: Int = 0,
+        customerName: String = ""
+    ) {
         val json = gson.toJson(items)
         historyDao.insert(HistoryEntry(
             timestamp = System.currentTimeMillis(),
             type = type,
             itemsJson = json,
-            totalKz = totalKz
+            totalKz = totalKz,
+            customerName = customerName.trim()
         ))
     }
 
