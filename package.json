@@ -1,13 +1,14 @@
 {
   "name": "stock-scan",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
+  "description": "Controlo de stock offline com scanner de código de barras – Angola",
   "dependencies": {
-    "@capacitor/android": "^6.0.0",
-    "@capacitor/cli": "^6.0.0",
-    "@capacitor/core": "^6.0.0",
-    "@capacitor/filesystem": "^6.0.0",
-    "@capacitor/share": "^6.0.0",
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/cli": "^6.1.2",
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/filesystem": "^6.0.1",
+    "@capacitor/share": "^6.0.2",
     "html5-qrcode": "2.3.8"
   }
 }

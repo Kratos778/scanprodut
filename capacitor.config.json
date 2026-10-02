@@ -1,6 +1,11 @@
 {
-  "appId": "com.kaleb.stockscan",
+  "appId": "com.elizier.stockscan",
   "appName": "Stock Scan",
   "webDir": "www",
-  "server": { "androidScheme": "https" }
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "Filesystem": {}
+  }
 }
