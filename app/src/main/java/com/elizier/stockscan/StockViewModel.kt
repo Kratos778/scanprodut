@@ -2,7 +2,6 @@ package com.elizier.stockscan
 
 import android.app.Application
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
@@ -14,111 +13,167 @@ import kotlinx.coroutines.flow.asStateFlow
 class StockViewModel(app: Application) : AndroidViewModel(app) {
     val repo = StockRepository(app)
 
-    val products = repo.products
+    val available = repo.available
+    val sold = repo.sold
+    val allProducts = repo.allProducts
     val history = repo.history
+    val availableCount = repo.availableCount
 
     private val _cart = MutableStateFlow<List<CartItem>>(emptyList())
     val cart: StateFlow<List<CartItem>> = _cart.asStateFlow()
 
-    var scanQty by mutableIntStateOf(1)
-    var currentCategory by mutableStateOf("")
     var pendingCode by mutableStateOf("")
     var showNewProduct by mutableStateOf(false)
     var editProduct by mutableStateOf<Product?>(null)
     var showCustomerDialog by mutableStateOf(false)
+    var showManualRegister by mutableStateOf(false)
+    var lastMessage by mutableStateOf<String?>(null)
 
-    suspend fun handleScan(code: String, isSale: Boolean) {
-        val p = repo.getProduct(code)
-        if (isSale) {
-            if (p == null) return // código não registado — não adiciona
-            val existing = _cart.value.toMutableList()
-            val idx = existing.indexOfFirst { it.code == code }
-            if (idx >= 0) {
-                existing[idx] = existing[idx].copy(qty = existing[idx].qty + scanQty)
-            } else {
-                existing.add(CartItem(code, p.name, scanQty, p.price))
-            }
-            _cart.value = existing
-        } else {
-            // Entrada: se o código JÁ existe → só aumenta quantidade (nunca cria duplicado)
-            if (p != null) {
-                repo.adjustQuantity(code, scanQty)
-                repo.addHistory("in", listOf(HistItem(code, p.name, scanQty, p.price)))
-            } else {
-                pendingCode = code
-                showNewProduct = true
-            }
-        }
-    }
-
-    suspend fun saveNewProduct(name: String, cat: String, price: Int, min: Int) {
-        // Código é PrimaryKey → Room impede duplicados automaticamente
-        val existing = repo.getProduct(pendingCode)
+    /**
+     * SCAN em modo ENTRADA / REGISTO:
+     * - Código novo → abre formulário para registar (1x só)
+     * - Código já existe (available ou sold) → ERRO, não regista de novo
+     */
+    suspend fun handleScanEntry(code: String) {
+        val existing = repo.getProduct(code)
         if (existing != null) {
-            // já existe — só actualiza qty
-            repo.adjustQuantity(pendingCode, scanQty)
-            showNewProduct = false
-            pendingCode = ""
+            lastMessage = if (existing.status == "sold")
+                "CÓDIGO JÁ VENDIDO — está na lista negra"
+            else
+                "CÓDIGO JÁ REGISTADO — não podes registar 2 vezes"
             return
         }
-        val p = Product(pendingCode, name, cat, scanQty, price, min)
-        repo.upsertProduct(p)
-        repo.addHistory("in", listOf(HistItem(pendingCode, name, scanQty, price)))
-        currentCategory = cat
+        pendingCode = code
+        showNewProduct = true
+        lastMessage = null
+    }
+
+    /**
+     * SCAN em modo VENDA:
+     * - Código available → adiciona ao carrinho
+     * - Código sold / inexistente → rejeita
+     * - Já no carrinho → não duplica
+     */
+    suspend fun handleScanSale(code: String) {
+        val p = repo.getProduct(code)
+        when {
+            p == null -> {
+                lastMessage = "Código não registado"
+                return
+            }
+            p.status == "sold" -> {
+                lastMessage = "JÁ VENDIDO — lista negra (cliente: ${p.soldTo ?: "?"})"
+                return
+            }
+            _cart.value.any { it.code == code } -> {
+                lastMessage = "Já está no carrinho"
+                return
+            }
+            else -> {
+                _cart.value = _cart.value + CartItem(p.code, p.name, p.price)
+                lastMessage = "${p.name} adicionado"
+            }
+        }
+    }
+
+    suspend fun registerNewProduct(name: String, cat: String, price: Int): Boolean {
+        val code = pendingCode.ifBlank { return false }
+        val p = Product(
+            code = code,
+            name = name.trim(),
+            category = cat.trim(),
+            price = price,
+            status = "available"
+        )
+        val ok = repo.registerProduct(p)
+        if (ok) {
+            repo.addHistory("in", listOf(HistItem(code, name, price)))
+            lastMessage = "Registado: $name"
+        } else {
+            lastMessage = "Falha: código já existe"
+        }
         showNewProduct = false
+        showManualRegister = false
         pendingCode = ""
+        return ok
     }
 
-    suspend fun updateProduct(name: String, cat: String, price: Int, min: Int) {
+    /** Registo manual: utilizador escreve o código à mão */
+    suspend fun registerManual(code: String, name: String, cat: String, price: Int): Boolean {
+        pendingCode = code.trim()
+        return registerNewProduct(name, cat, price)
+    }
+
+    suspend fun updateProduct(name: String, cat: String, price: Int) {
         val old = editProduct ?: return
-        repo.upsertProduct(old.copy(name = name, category = cat, price = price, minStock = min))
+        if (old.status == "sold") {
+            lastMessage = "Produto já vendido — não edita"
+            editProduct = null
+            return
+        }
+        repo.updateProduct(old.copy(name = name, category = cat, price = price))
         editProduct = null
+        lastMessage = "Actualizado"
     }
 
-    fun adjustCart(code: String, delta: Int) {
-        val list = _cart.value.toMutableList()
-        val idx = list.indexOfFirst { it.code == code }
-        if (idx < 0) return
-        val newQty = list[idx].qty + delta
-        if (newQty <= 0) list.removeAt(idx)
-        else list[idx] = list[idx].copy(qty = newQty)
-        _cart.value = list
+    fun removeFromCart(code: String) {
+        _cart.value = _cart.value.filter { it.code != code }
     }
 
     fun clearCart() {
         _cart.value = emptyList()
     }
 
-    /** Chamar depois de o utilizador preencher o nome do cliente */
     suspend fun confirmSale(customerName: String): Boolean {
         val name = customerName.trim()
-        if (name.isEmpty()) return false
+        if (name.isEmpty()) {
+            lastMessage = "Nome do cliente obrigatório"
+            return false
+        }
         val items = _cart.value
         if (items.isEmpty()) return false
+
+        // Verificar todos ainda available
         for (item in items) {
-            val p = repo.getProduct(item.code) ?: return false
-            if (p.quantity < item.qty) return false
+            val p = repo.getProduct(item.code)
+            if (p == null || p.status != "available") {
+                lastMessage = "${item.name} já não está disponível"
+                return false
+            }
         }
+
         val histItems = mutableListOf<HistItem>()
         var total = 0
         for (item in items) {
-            repo.adjustQuantity(item.code, -item.qty)
-            histItems.add(HistItem(item.code, item.name, item.qty, item.price))
-            total += item.qty * item.price
+            val ok = repo.markSold(item.code, name)
+            if (!ok) {
+                lastMessage = "Falha ao marcar ${item.name}"
+                return false
+            }
+            histItems.add(HistItem(item.code, item.name, item.price))
+            total += item.price
         }
         repo.addHistory("out", histItems, total, name)
         _cart.value = emptyList()
         showCustomerDialog = false
+        lastMessage = "Venda OK — $name — ${total} Kz"
         return true
     }
 
-    suspend fun adjustStock(code: String, delta: Int) {
-        repo.adjustQuantity(code, delta)
-    }
-
     suspend fun deleteProduct(p: Product) {
+        if (p.status == "sold") {
+            lastMessage = "Não apaga produto já vendido (fica no histórico)"
+            return
+        }
         repo.deleteProduct(p)
+        lastMessage = "Apagado"
     }
 
-    suspend fun undoLastSale(): Boolean = repo.undoLastSale()
+    suspend fun undoLastSale(): Boolean {
+        val ok = repo.undoLastSale()
+        lastMessage = if (ok) "Venda desfeita — códigos voltaram ao stock" else "Nada para desfazer"
+        return ok
+    }
+
+    fun clearMessage() { lastMessage = null }
 }
