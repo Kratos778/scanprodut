@@ -44,13 +44,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
             != PackageManager.PERMISSION_GRANTED
         ) {
             requestPermission.launch(Manifest.permission.CAMERA)
         }
-
         setContent {
             StockScanTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -73,30 +71,14 @@ fun StockScanApp(vm: StockViewModel = viewModel()) {
     Scaffold(
         bottomBar = {
             NavigationBar {
-                NavigationBarItem(
-                    selected = tab == 0,
-                    onClick = { tab = 0 },
-                    icon = { Icon(Icons.Default.AddBox, null) },
-                    label = { Text("Entrada") }
-                )
-                NavigationBarItem(
-                    selected = tab == 1,
-                    onClick = { tab = 1 },
-                    icon = { Icon(Icons.Default.ShoppingCart, null) },
-                    label = { Text("Venda") }
-                )
-                NavigationBarItem(
-                    selected = tab == 2,
-                    onClick = { tab = 2 },
-                    icon = { Icon(Icons.Default.Inventory, null) },
-                    label = { Text("Stock") }
-                )
-                NavigationBarItem(
-                    selected = tab == 3,
-                    onClick = { tab = 3 },
-                    icon = { Icon(Icons.Default.History, null) },
-                    label = { Text("Histórico") }
-                )
+                NavigationBarItem(selected = tab == 0, onClick = { tab = 0 },
+                    icon = { Icon(Icons.Default.AddBox, null) }, label = { Text("Entrada") })
+                NavigationBarItem(selected = tab == 1, onClick = { tab = 1 },
+                    icon = { Icon(Icons.Default.ShoppingCart, null) }, label = { Text("Venda") })
+                NavigationBarItem(selected = tab == 2, onClick = { tab = 2 },
+                    icon = { Icon(Icons.Default.Inventory, null) }, label = { Text("Stock") })
+                NavigationBarItem(selected = tab == 3, onClick = { tab = 3 },
+                    icon = { Icon(Icons.Default.History, null) }, label = { Text("Histórico") })
             }
         }
     ) { padding ->
@@ -116,16 +98,11 @@ fun StockScanApp(vm: StockViewModel = viewModel()) {
                     if (tab == 0) {
                         EntryList(products, vm.currentCategory, onCategory = { vm.currentCategory = it })
                     } else {
-                        CartSection(cart, vm, onConfirm = {
-                            scope.launch {
-                                val ok = vm.confirmSale()
-                                Toast.makeText(
-                                    context,
-                                    if (ok) "Venda registada ✓" else "Stock insuficiente",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            }
-                        })
+                        CartSection(
+                            cart = cart,
+                            vm = vm,
+                            onConfirmClick = { vm.showCustomerDialog = true }
+                        )
                     }
                 }
                 2 -> StockScreen(products, vm)
@@ -152,14 +129,59 @@ fun StockScanApp(vm: StockViewModel = viewModel()) {
             onDismiss = { vm.editProduct = null }
         )
     }
+    if (vm.showCustomerDialog) {
+        CustomerDialog(
+            onConfirm = { customerName ->
+                scope.launch {
+                    val ok = vm.confirmSale(customerName)
+                    Toast.makeText(
+                        context,
+                        if (ok) "Venda registada ✓ ($customerName)"
+                        else "Falha: stock insuficiente ou nome vazio",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            },
+            onDismiss = { vm.showCustomerDialog = false }
+        )
+    }
 }
 
 @Composable
-fun ScannerSection(
-    qty: Int,
-    onQtyChange: (Int) -> Unit,
-    onCode: (String) -> Unit
-) {
+fun CustomerDialog(onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
+    var name by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Nome do cliente") },
+        text = {
+            Column {
+                Text("Obrigatório para registar a venda.", style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Cliente") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (name.trim().isNotEmpty()) onConfirm(name.trim())
+                },
+                enabled = name.trim().isNotEmpty()
+            ) { Text("Confirmar venda") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar") }
+        }
+    )
+}
+
+@Composable
+fun ScannerSection(qty: Int, onQtyChange: (Int) -> Unit, onCode: (String) -> Unit) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var torch by remember { mutableStateOf(false) }
@@ -178,7 +200,6 @@ fun ScannerSection(
             },
             modifier = Modifier.fillMaxWidth().height(220.dp)
         )
-
         Row(
             Modifier.fillMaxWidth().padding(top = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -204,14 +225,10 @@ fun ScannerSection(
                 torch = !torch
                 scannerHelper?.toggleTorch(torch)
             }) {
-                Icon(
-                    if (torch) Icons.Default.FlashOn else Icons.Default.FlashOff,
-                    contentDescription = "Lanterna"
-                )
+                Icon(if (torch) Icons.Default.FlashOn else Icons.Default.FlashOff, "Lanterna")
             }
         }
     }
-
     DisposableEffect(Unit) {
         onDispose { scannerHelper?.release() }
     }
@@ -220,7 +237,6 @@ fun ScannerSection(
 @Composable
 fun EntryList(products: List<Product>, category: String, onCategory: (String) -> Unit) {
     val filtered = if (category.isBlank()) products else products.filter { it.category == category }
-
     Column(Modifier.padding(8.dp)) {
         OutlinedTextField(
             value = category,
@@ -250,11 +266,11 @@ fun EntryList(products: List<Product>, category: String, onCategory: (String) ->
 }
 
 @Composable
-fun CartSection(cart: List<CartItem>, vm: StockViewModel, onConfirm: () -> Unit) {
+fun CartSection(cart: List<CartItem>, vm: StockViewModel, onConfirmClick: () -> Unit) {
     val total = cart.sumOf { it.qty * it.price }
     Column(Modifier.padding(8.dp)) {
         if (cart.isEmpty()) {
-            Text("Scaneia os produtos a vender. Só sai do stock quando confirmares.", color = Color.Gray)
+            Text("Scaneia os produtos. Depois carrega Confirmar e indica o nome do cliente.", color = Color.Gray)
         } else {
             LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
                 items(cart) { item ->
@@ -282,7 +298,7 @@ fun CartSection(cart: List<CartItem>, vm: StockViewModel, onConfirm: () -> Unit)
                 modifier = Modifier.padding(vertical = 8.dp)
             )
             Button(
-                onClick = onConfirm,
+                onClick = onConfirmClick,
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC2410C))
             ) {
@@ -336,7 +352,8 @@ fun StockScreen(products: List<Product>, vm: StockViewModel) {
                                 IconButton(onClick = { scope.launch { vm.adjustStock(p.code, -1) } }) {
                                     Icon(Icons.Default.Remove, null)
                                 }
-                                Text("${p.quantity}", fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.CenterVertically))
+                                Text("${p.quantity}", fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.align(Alignment.CenterVertically))
                                 IconButton(onClick = { scope.launch { vm.adjustStock(p.code, 1) } }) {
                                     Icon(Icons.Default.Add, null)
                                 }
@@ -380,8 +397,11 @@ fun HistoryScreen(history: List<HistoryEntry>, vm: StockViewModel) {
                 val items = vm.repo.parseItems(h.itemsJson)
                 val typeLabel = if (h.type == "in") "Entrada" else "Venda"
                 val sdf = java.text.SimpleDateFormat("dd/MM/yy HH:mm", java.util.Locale.getDefault())
+                val client = if (h.customerName.isNotBlank()) " · ${h.customerName}" else ""
                 ListItem(
-                    headlineContent = { Text("$typeLabel · ${sdf.format(java.util.Date(h.timestamp))}") },
+                    headlineContent = {
+                        Text("$typeLabel$client · ${sdf.format(java.util.Date(h.timestamp))}")
+                    },
                     supportingContent = {
                         Text(items.joinToString { "${it.name} ×${it.qty}" })
                     },
@@ -411,6 +431,8 @@ fun NewProductDialog(
         text = {
             Column {
                 Text("Código: $code", style = MaterialTheme.typography.bodySmall)
+                Text("Este código ainda não existe. Preenche os dados.", style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(8.dp))
                 OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nome") }, singleLine = true)
                 OutlinedTextField(value = cat, onValueChange = { cat = it }, label = { Text("Categoria") }, singleLine = true)
                 OutlinedTextField(value = price, onValueChange = { price = it }, label = { Text("Preço (Kz)") }, singleLine = true)
@@ -446,7 +468,7 @@ fun EditProductDialog(
         title = { Text("Editar produto") },
         text = {
             Column {
-                Text("Código: ${product.code}", style = MaterialTheme.typography.bodySmall)
+                Text("Código: ${product.code} (não muda)", style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nome") }, singleLine = true)
                 OutlinedTextField(value = cat, onValueChange = { cat = it }, label = { Text("Categoria") }, singleLine = true)
                 OutlinedTextField(value = price, onValueChange = { price = it }, label = { Text("Preço (Kz)") }, singleLine = true)
