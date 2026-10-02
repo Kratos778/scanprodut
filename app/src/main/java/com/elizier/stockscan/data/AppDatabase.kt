@@ -46,7 +46,7 @@ interface HistoryDao {
     suspend fun deleteAll()
 }
 
-@Database(entities = [Product::class, HistoryEntry::class], version = 1, exportSchema = false)
+@Database(entities = [Product::class, HistoryEntry::class], version = 2, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun productDao(): ProductDao
     abstract fun historyDao(): HistoryDao
@@ -60,7 +60,9 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "stockscan.db"
-                ).build().also { INSTANCE = it }
+                )
+                .fallbackToDestructiveMigration()
+                .build().also { INSTANCE = it }
             }
         }
     }
