@@ -27,7 +27,6 @@ jobs:
         run: |
           mkdir -p www
           cp node_modules/html5-qrcode/html5-qrcode.min.js www/
-          # garantir que index.html está em www/
           if [ -f index.html ] && [ ! -f www/index.html ]; then
             mv index.html www/
           fi
@@ -38,7 +37,6 @@ jobs:
       - name: Permissão da câmara + features
         run: |
           MANIFEST=android/app/src/main/AndroidManifest.xml
-          # adicionar CAMERA se ainda não existir
           if ! grep -q 'android.permission.CAMERA' "$MANIFEST"; then
             sed -i 's#<uses-permission android:name="android.permission.INTERNET" />#<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-feature android:name="android.hardware.camera" android:required="false" />\n    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />#' "$MANIFEST"
           fi
@@ -47,43 +45,69 @@ jobs:
       - name: Sincronizar Capacitor
         run: npx cap sync android
 
-      - name: Configurar assinatura (keystore fixa)
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+      - name: Configurar keystore (se existir) e gerar APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/release.keystore
-          cat > android/key.properties << EOF
-          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
-          keyPassword=${{ secrets.KEY_PASSWORD }}
-          keyAlias=${{ secrets.KEY_ALIAS }}
+          cd android
+          chmod +x gradlew
+
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "=== Keystore encontrada → a gerar APK RELEASE assinado ==="
+            echo "$KEYSTORE_BASE64" | base64 -d > app/release.keystore
+
+            cat > key.properties << EOF
+          storePassword=$KEYSTORE_PASSWORD
+          keyPassword=$KEY_PASSWORD
+          keyAlias=$KEY_ALIAS
           storeFile=release.keystore
           EOF
 
-      - name: Activar signing no build.gradle
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
-        run: |
-          GRADLE=android/app/build.gradle
-          # injectar signingConfigs se ainda não existir
-          if ! grep -q 'signingConfigs' "$GRADLE"; then
-            sed -i '/android {/a\    signingConfigs {\n        release {\n            def keystorePropertiesFile = rootProject.file("key.properties")\n            def keystoreProperties = new Properties()\n            if (keystorePropertiesFile.exists()) {\n                keystoreProperties.load(new FileInputStream(keystorePropertiesFile))\n            }\n            storeFile file(keystoreProperties["storeFile"])\n            storePassword keystoreProperties["storePassword"]\n            keyAlias keystoreProperties["keyAlias"]\n            keyPassword keystoreProperties["keyPassword"]\n        }\n    }' "$GRADLE"
-          fi
-          # forçar release a usar o signingConfig
-          if ! grep -q 'signingConfig signingConfigs.release' "$GRADLE"; then
-            sed -i '/buildTypes {/,/release {/ s/release {/release {\n            signingConfig signingConfigs.release/' "$GRADLE"
-          fi
+            # inject signingConfigs no build.gradle se ainda não existir
+            GRADLE=app/build.gradle
+            if ! grep -q 'signingConfigs' "$GRADLE"; then
+              # inserir depois de "android {"
+              python3 - << 'PY'
+import re
+with open("app/build.gradle") as f:
+    s = f.read()
+block = '''
+    signingConfigs {
+        release {
+            def keystorePropertiesFile = rootProject.file("key.properties")
+            def keystoreProperties = new Properties()
+            if (keystorePropertiesFile.exists()) {
+                keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+            }
+            storeFile file(keystoreProperties["storeFile"])
+            storePassword keystoreProperties["storePassword"]
+            keyAlias keystoreProperties["keyAlias"]
+            keyPassword keystoreProperties["keyPassword"]
+        }
+    }
+'''
+s = s.replace("android {", "android {" + block, 1)
+# forçar signingConfig no release
+if "signingConfig signingConfigs.release" not in s:
+    s = re.sub(r'(release\s*\{)', r'\1\n            signingConfig signingConfigs.release', s, count=1)
+with open("app/build.gradle", "w") as f:
+    f.write(s)
+print("signingConfigs injectado")
+PY
+            fi
 
-      - name: Gerar APK Release (assinado)
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
-        run: |
-          cd android
-          chmod +x gradlew
-          ./gradlew assembleRelease
-
-      - name: Gerar APK Debug (fallback se não houver keystore)
-        if: ${{ secrets.KEYSTORE_BASE64 == '' }}
-        run: |
-          cd android
-          chmod +x gradlew
-          ./gradlew assembleDebug
+            ./gradlew assembleRelease
+            echo "APK release gerado"
+            ls -la app/build/outputs/apk/release/ || true
+          else
+            echo "=== Sem keystore nos Secrets → a gerar APK DEBUG ==="
+            ./gradlew assembleDebug
+            echo "APK debug gerado"
+            ls -la app/build/outputs/apk/debug/ || true
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
