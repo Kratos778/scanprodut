@@ -48,7 +48,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             StockScanTheme {
-                Surface(Modifier = Modifier.fillMaxSize()) { StockScanApp() }
+                Surface(modifier = Modifier.fillMaxSize()) { StockScanApp() }
             }
         }
     }
