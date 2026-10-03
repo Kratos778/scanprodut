@@ -59,12 +59,18 @@ interface ProductDao {
 
     @Query("SELECT COUNT(*) FROM products WHERE status = 'available' AND catalogId = :catalogId")
     suspend fun countAvailableByCatalog(catalogId: Long): Int
+
+    @Query("SELECT * FROM history WHERE type = 'out' AND timestamp >= :fromTs ORDER BY timestamp DESC")
+    suspend fun salesSince(fromTs: Long): List<HistoryEntry>
 }
 
 @Dao
 interface HistoryDao {
     @Query("SELECT * FROM history ORDER BY timestamp DESC LIMIT 150")
     fun getRecent(): Flow<List<HistoryEntry>>
+
+    @Query("SELECT * FROM history WHERE type = 'out' AND timestamp >= :fromTs ORDER BY timestamp DESC")
+    suspend fun salesSince(fromTs: Long): List<HistoryEntry>
 
     @Insert
     suspend fun insert(entry: HistoryEntry): Long
@@ -81,7 +87,7 @@ interface HistoryDao {
 
 @Database(
     entities = [CatalogItem::class, Product::class, HistoryEntry::class],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
