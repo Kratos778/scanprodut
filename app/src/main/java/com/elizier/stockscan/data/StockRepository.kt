@@ -22,6 +22,8 @@ class StockRepository(context: Context) {
 
     suspend fun getProduct(code: String) = productDao.getByCode(code)
 
+    suspend fun getCatalogById(id: Long) = catalogDao.getById(id)
+
     suspend fun addCatalogItem(name: String, category: String, price: Int, cost: Int, minStock: Int): Long {
         return catalogDao.insert(
             CatalogItem(
@@ -34,16 +36,35 @@ class StockRepository(context: Context) {
         )
     }
 
-    suspend fun updateCatalogItem(item: CatalogItem) = catalogDao.update(item)
+    /** Actualiza catálogo E sincroniza todas as unidades available desse produto */
+    suspend fun updateCatalogItem(item: CatalogItem) {
+        catalogDao.update(item)
+        productDao.syncFromCatalog(
+            catalogId = item.id,
+            name = item.name,
+            category = item.category,
+            price = item.price,
+            cost = item.cost
+        )
+    }
 
-    suspend fun deleteCatalogItem(item: CatalogItem) = catalogDao.delete(item)
+    /**
+     * Apaga do catálogo + unidades available ligadas.
+     * Unidades já vendidas ficam no histórico (lista negra).
+     */
+    suspend fun deleteCatalogItem(item: CatalogItem) {
+        productDao.deleteAvailableByCatalog(item.id)
+        catalogDao.delete(item)
+    }
 
-    suspend fun registerUnit(code: String, catalog: CatalogItem): Boolean {
+    /** Regista unidade com dados FRESCOS do catálogo (por id) */
+    suspend fun registerUnit(code: String, catalogId: Long): Boolean {
         if (productDao.getByCode(code) != null) return false
+        val catalog = catalogDao.getById(catalogId) ?: return false
         return try {
             productDao.insert(
                 Product(
-                    code = code,
+                    code = code.trim(),
                     name = catalog.name,
                     category = catalog.category,
                     price = catalog.price,
@@ -59,12 +80,19 @@ class StockRepository(context: Context) {
     }
 
     suspend fun markSold(code: String, customer: String): Boolean {
-        return productDao.markSold(code, System.currentTimeMillis(), customer) > 0
+        return productDao.markSold(code.trim(), System.currentTimeMillis(), customer) > 0
     }
 
     suspend fun deleteProduct(p: Product) = productDao.delete(p)
 
     suspend fun countByCatalog(catalogId: Long) = productDao.countAvailableByCatalog(catalogId)
+
+    /** Apaga TUDO: catálogo, unidades, histórico */
+    suspend fun clearAllData() {
+        productDao.deleteAll()
+        catalogDao.deleteAll()
+        historyDao.deleteAll()
+    }
 
     suspend fun addHistory(
         type: String,
@@ -99,7 +127,6 @@ class StockRepository(context: Context) {
         return true
     }
 
-    /** Resumo desde meia-noite de hoje */
     suspend fun daySummary(
         available: List<Product>,
         catalog: List<CatalogItem>
