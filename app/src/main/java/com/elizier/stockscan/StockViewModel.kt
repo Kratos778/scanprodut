@@ -32,6 +32,7 @@ class StockViewModel(app: Application) : AndroidViewModel(app) {
     var showNewCatalog by mutableStateOf(false)
     var editCatalog by mutableStateOf<CatalogItem?>(null)
     var showCustomerDialog by mutableStateOf(false)
+    var showClearConfirm by mutableStateOf(false)
     var lastMessage by mutableStateOf<String?>(null)
 
     init {
@@ -40,43 +41,53 @@ class StockViewModel(app: Application) : AndroidViewModel(app) {
                 avail to cat
             }.collect { (avail, cat) ->
                 _daySummary.value = repo.daySummary(avail, cat)
+                // Mantém selectedCatalog actualizado se ainda existir
+                val selId = selectedCatalog?.id
+                if (selId != null) {
+                    selectedCatalog = cat.find { it.id == selId }
+                }
             }
         }
     }
 
-    suspend fun refreshDashboard() {
-        // force by re-reading - collect will update
-    }
-
     suspend fun handleScanEntry(code: String) {
-        val cat = selectedCatalog
-        if (cat == null) {
+        val selId = selectedCatalog?.id
+        if (selId == null) {
             lastMessage = "Escolhe primeiro um produto"
             return
         }
-        val existing = repo.getProduct(code)
+        // Dados FRESCOS da BD — nunca usa objecto stale
+        val cat = repo.getCatalogById(selId)
+        if (cat == null) {
+            lastMessage = "Produto do catálogo já não existe"
+            selectedCatalog = null
+            return
+        }
+        selectedCatalog = cat // sync UI
+
+        val existing = repo.getProduct(code.trim())
         if (existing != null) {
             lastMessage = if (existing.status == "sold")
                 "CÓDIGO JÁ VENDIDO"
             else
-                "CÓDIGO JÁ REGISTADO"
+                "CÓDIGO JÁ REGISTADO (${existing.name})"
             return
         }
-        val ok = repo.registerUnit(code, cat)
+        val ok = repo.registerUnit(code.trim(), cat.id)
         if (ok) {
-            repo.addHistory("in", listOf(HistItem(code, cat.name, cat.price, cat.cost)))
-            lastMessage = "${cat.name} · $code ✓"
+            repo.addHistory("in", listOf(HistItem(code.trim(), cat.name, cat.price, cat.cost)))
+            lastMessage = "${cat.name} · ${code.trim()} ✓"
         } else {
             lastMessage = "Falha ao registar"
         }
     }
 
     suspend fun handleScanSale(code: String) {
-        val p = repo.getProduct(code)
+        val p = repo.getProduct(code.trim())
         when {
             p == null -> lastMessage = "Código não registado"
             p.status == "sold" -> lastMessage = "JÁ VENDIDO (${p.soldTo ?: "?"})"
-            _cart.value.any { it.code == code } -> lastMessage = "Já no carrinho"
+            _cart.value.any { it.code == p.code } -> lastMessage = "Já no carrinho"
             else -> {
                 _cart.value = _cart.value + CartItem(p.code, p.name, p.price, p.cost)
                 lastMessage = "${p.name} +${p.price} Kz"
@@ -92,17 +103,31 @@ class StockViewModel(app: Application) : AndroidViewModel(app) {
 
     suspend fun updateCatalog(name: String, category: String, price: Int, cost: Int, minStock: Int) {
         val old = editCatalog ?: return
-        repo.updateCatalogItem(
-            old.copy(name = name, category = category, price = price, cost = cost, minStock = minStock)
+        val updated = old.copy(
+            name = name.trim(),
+            category = category.trim(),
+            price = price,
+            cost = cost,
+            minStock = minStock
         )
+        repo.updateCatalogItem(updated) // sincroniza unidades available
+        if (selectedCatalog?.id == old.id) selectedCatalog = updated
         editCatalog = null
-        lastMessage = "Actualizado"
+        lastMessage = "Actualizado (unidades em stock sincronizadas)"
     }
 
     suspend fun deleteCatalog(item: CatalogItem) {
-        repo.deleteCatalogItem(item)
+        repo.deleteCatalogItem(item) // apaga também unidades available
         if (selectedCatalog?.id == item.id) selectedCatalog = null
-        lastMessage = "Removido"
+        lastMessage = "Removido do catálogo + unidades em stock"
+    }
+
+    suspend fun clearAllData() {
+        repo.clearAllData()
+        selectedCatalog = null
+        _cart.value = emptyList()
+        showClearConfirm = false
+        lastMessage = "Todos os dados apagados"
     }
 
     fun removeFromCart(code: String) {
