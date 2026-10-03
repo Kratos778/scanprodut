@@ -20,7 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -65,7 +65,6 @@ fun StockScanApp(vm: StockViewModel = viewModel()) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
-    // Toast para mensagens do ViewModel
     LaunchedEffect(vm.lastMessage) {
         vm.lastMessage?.let {
             Toast.makeText(context, it, Toast.LENGTH_LONG).show()
@@ -89,7 +88,7 @@ fun StockScanApp(vm: StockViewModel = viewModel()) {
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             when (tab) {
-                0 -> { // REGISTAR (1 código = 1 unidade)
+                0 -> {
                     ScannerSection(onCode = { code ->
                         scope.launch {
                             vm.handleScanEntry(code)
@@ -114,7 +113,7 @@ fun StockScanApp(vm: StockViewModel = viewModel()) {
                         modifier = Modifier.padding(horizontal = 12.dp)
                     )
                 }
-                1 -> { // VENDA
+                1 -> {
                     ScannerSection(onCode = { code ->
                         scope.launch {
                             vm.handleScanSale(code)
@@ -132,34 +131,26 @@ fun StockScanApp(vm: StockViewModel = viewModel()) {
     if (vm.showNewProduct) {
         NewProductDialog(
             code = vm.pendingCode,
-            onSave = { name, cat, price ->
-                scope.launch { vm.registerNewProduct(name, cat, price) }
-            },
+            onSave = { name, cat, price -> scope.launch { vm.registerNewProduct(name, cat, price) } },
             onDismiss = { vm.showNewProduct = false; vm.pendingCode = "" }
         )
     }
     if (vm.showManualRegister) {
         ManualRegisterDialog(
-            onSave = { code, name, cat, price ->
-                scope.launch { vm.registerManual(code, name, cat, price) }
-            },
+            onSave = { code, name, cat, price -> scope.launch { vm.registerManual(code, name, cat, price) } },
             onDismiss = { vm.showManualRegister = false }
         )
     }
     if (vm.editProduct != null) {
         EditProductDialog(
             product = vm.editProduct!!,
-            onSave = { name, cat, price ->
-                scope.launch { vm.updateProduct(name, cat, price) }
-            },
+            onSave = { name, cat, price -> scope.launch { vm.updateProduct(name, cat, price) } },
             onDismiss = { vm.editProduct = null }
         )
     }
     if (vm.showCustomerDialog) {
         CustomerDialog(
-            onConfirm = { customerName ->
-                scope.launch { vm.confirmSale(customerName) }
-            },
+            onConfirm = { customerName -> scope.launch { vm.confirmSale(customerName) } },
             onDismiss = { vm.showCustomerDialog = false }
         )
     }
@@ -216,17 +207,14 @@ fun CartSection(cart: List<CartItem>, vm: StockViewModel, onConfirmClick: () -> 
             }
             Text(
                 "Total: ${"%,d".format(total).replace(',', '.')} Kz  (${cart.size} un.)",
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold,
+                fontSize = 22.sp, fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(vertical = 8.dp)
             )
             Button(
                 onClick = onConfirmClick,
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC2410C))
-            ) {
-                Text("Confirmar venda (${cart.size})")
-            }
+            ) { Text("Confirmar venda (${cart.size})") }
             TextButton(onClick = { vm.clearCart() }, modifier = Modifier.fillMaxWidth()) {
                 Text("Limpar lista")
             }
@@ -235,12 +223,7 @@ fun CartSection(cart: List<CartItem>, vm: StockViewModel, onConfirmClick: () -> 
 }
 
 @Composable
-fun StockScreen(
-    available: List<Product>,
-    sold: List<Product>,
-    stockCount: Int,
-    vm: StockViewModel
-) {
+fun StockScreen(available: List<Product>, sold: List<Product>, stockCount: Int, vm: StockViewModel) {
     val scope = rememberCoroutineScope()
     var search by remember { mutableStateOf("") }
     var showSold by remember { mutableStateOf(false) }
@@ -255,19 +238,16 @@ fun StockScreen(
         Text("Disponíveis: $stockCount  ·  Valor: ${"%,d".format(valorStock).replace(',', '.')} Kz",
             fontWeight = FontWeight.Bold, fontSize = 18.sp)
         Text("Vendidos (lista negra): ${sold.size}", color = Color.Gray)
-
         Row(Modifier.padding(vertical = 8.dp)) {
             FilterChip(selected = !showSold, onClick = { showSold = false }, label = { Text("Disponíveis") })
             Spacer(Modifier.width(8.dp))
             FilterChip(selected = showSold, onClick = { showSold = true }, label = { Text("Vendidos") })
         }
-
         OutlinedTextField(
             value = search, onValueChange = { search = it },
             label = { Text("Pesquisar nome ou código") },
             modifier = Modifier.fillMaxWidth(), singleLine = true
         )
-
         LazyColumn {
             byCat.forEach { (cat, items) ->
                 item {
@@ -277,18 +257,13 @@ fun StockScreen(
                 items(items, key = { it.code }) { p ->
                     ListItem(
                         headlineContent = {
-                            Text(
-                                p.name + if (p.status == "sold") "  [VENDIDO]" else "",
-                                color = if (p.status == "sold") Color.Red else Color.Unspecified
-                            )
+                            Text(p.name + if (p.status == "sold") "  [VENDIDO]" else "",
+                                color = if (p.status == "sold") Color.Red else Color.Unspecified)
                         },
                         supportingContent = {
-                            Text(
-                                if (p.status == "sold")
-                                    "${p.code} · ${p.price} Kz · ${p.soldTo ?: "?"}"
-                                else
-                                    "${p.code} · ${p.price} Kz"
-                            )
+                            Text(if (p.status == "sold")
+                                "${p.code} · ${p.price} Kz · ${p.soldTo ?: "?"}"
+                            else "${p.code} · ${p.price} Kz")
                         },
                         trailingContent = {
                             if (p.status == "available") {
@@ -312,17 +287,10 @@ fun StockScreen(
 @Composable
 fun HistoryScreen(history: List<HistoryEntry>, vm: StockViewModel) {
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
     Column(Modifier.padding(8.dp)) {
-        Button(
-            onClick = {
-                scope.launch {
-                    vm.undoLastSale()
-                }
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) { Text("↩ Desfazer última venda") }
-
+        Button(onClick = { scope.launch { vm.undoLastSale() } }, modifier = Modifier.fillMaxWidth()) {
+            Text("↩ Desfazer última venda")
+        }
         LazyColumn {
             items(history) { h ->
                 val items = vm.repo.parseItems(h.itemsJson)
@@ -330,15 +298,9 @@ fun HistoryScreen(history: List<HistoryEntry>, vm: StockViewModel) {
                 val sdf = java.text.SimpleDateFormat("dd/MM/yy HH:mm", java.util.Locale.getDefault())
                 val client = if (h.customerName.isNotBlank()) " · ${h.customerName}" else ""
                 ListItem(
-                    headlineContent = {
-                        Text("$typeLabel$client · ${sdf.format(java.util.Date(h.timestamp))}")
-                    },
-                    supportingContent = {
-                        Text(items.joinToString { "${it.name} (${it.code})" })
-                    },
-                    trailingContent = {
-                        if (h.totalKz > 0) Text("${h.totalKz} Kz")
-                    }
+                    headlineContent = { Text("$typeLabel$client · ${sdf.format(java.util.Date(h.timestamp))}") },
+                    supportingContent = { Text(items.joinToString { "${it.name} (${it.code})" }) },
+                    trailingContent = { if (h.totalKz > 0) Text("${h.totalKz} Kz") }
                 )
             }
         }
@@ -365,8 +327,7 @@ fun NewProductDialog(code: String, onSave: (String, String, Int) -> Unit, onDism
         },
         confirmButton = {
             Button(onClick = {
-                if (name.isNotBlank() && cat.isNotBlank())
-                    onSave(name.trim(), cat.trim(), price.toIntOrNull() ?: 0)
+                if (name.isNotBlank() && cat.isNotBlank()) onSave(name.trim(), cat.trim(), price.toIntOrNull() ?: 0)
             }) { Text("Guardar") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }
@@ -433,18 +394,13 @@ fun CustomerDialog(onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
             Column {
                 Text("Obrigatório. Os códigos passam para a lista negra.")
                 Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = name, onValueChange = { name = it },
-                    label = { Text("Cliente") }, singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Cliente") },
+                    singleLine = true, modifier = Modifier.fillMaxWidth())
             }
         },
         confirmButton = {
-            Button(
-                onClick = { if (name.trim().isNotEmpty()) onConfirm(name.trim()) },
-                enabled = name.trim().isNotEmpty()
-            ) { Text("Confirmar venda") }
+            Button(onClick = { if (name.trim().isNotEmpty()) onConfirm(name.trim()) },
+                enabled = name.trim().isNotEmpty()) { Text("Confirmar venda") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }
     )
