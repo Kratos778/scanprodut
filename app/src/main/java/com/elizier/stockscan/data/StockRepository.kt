@@ -7,45 +7,57 @@ import kotlinx.coroutines.flow.Flow
 
 class StockRepository(context: Context) {
     private val db = AppDatabase.get(context)
+    private val catalogDao = db.catalogDao()
     private val productDao = db.productDao()
     private val historyDao = db.historyDao()
     private val gson = Gson()
 
-    val allProducts: Flow<List<Product>> = productDao.getAll()
+    val catalog: Flow<List<CatalogItem>> = catalogDao.getAll()
     val available: Flow<List<Product>> = productDao.getAvailable()
     val sold: Flow<List<Product>> = productDao.getSold()
+    val allProducts: Flow<List<Product>> = productDao.getAll()
     val history: Flow<List<HistoryEntry>> = historyDao.getRecent()
     val availableCount: Flow<Int> = productDao.countAvailable()
 
     suspend fun getProduct(code: String) = productDao.getByCode(code)
 
-    /**
-     * Regista produto NOVO. Falha se o código já existir (ABORT).
-     * @return true se inseriu, false se código já existia
-     */
-    suspend fun registerProduct(p: Product): Boolean {
-        val existing = productDao.getByCode(p.code)
-        if (existing != null) return false
+    suspend fun addCatalogItem(name: String, category: String, price: Int): Long {
+        return catalogDao.insert(CatalogItem(name = name.trim(), category = category.trim(), price = price))
+    }
+
+    suspend fun updateCatalogItem(item: CatalogItem) = catalogDao.update(item)
+
+    suspend fun deleteCatalogItem(item: CatalogItem) = catalogDao.delete(item)
+
+    /** Regista unidade com código único ligado ao catálogo. Falha se código já existir. */
+    suspend fun registerUnit(code: String, catalog: CatalogItem): Boolean {
+        if (productDao.getByCode(code) != null) return false
         return try {
-            productDao.insert(p)
+            productDao.insert(
+                Product(
+                    code = code,
+                    name = catalog.name,
+                    category = catalog.category,
+                    price = catalog.price,
+                    status = "available",
+                    catalogId = catalog.id
+                )
+            )
             true
         } catch (e: Exception) {
             false
         }
     }
 
-    suspend fun updateProduct(p: Product) = productDao.update(p)
-
-    /** Marca como vendido (lista negra). Só funciona se ainda estiver available. */
     suspend fun markSold(code: String, customer: String): Boolean {
-        val rows = productDao.markSold(code, System.currentTimeMillis(), customer)
-        return rows > 0
+        return productDao.markSold(code, System.currentTimeMillis(), customer) > 0
     }
 
     suspend fun deleteProduct(p: Product) = productDao.delete(p)
 
     suspend fun clearAll() {
         productDao.deleteAll()
+        catalogDao.deleteAll()
         historyDao.deleteAll()
     }
 
@@ -55,13 +67,15 @@ class StockRepository(context: Context) {
         totalKz: Int = 0,
         customerName: String = ""
     ) {
-        historyDao.insert(HistoryEntry(
-            timestamp = System.currentTimeMillis(),
-            type = type,
-            itemsJson = gson.toJson(items),
-            totalKz = totalKz,
-            customerName = customerName.trim()
-        ))
+        historyDao.insert(
+            HistoryEntry(
+                timestamp = System.currentTimeMillis(),
+                type = type,
+                itemsJson = gson.toJson(items),
+                totalKz = totalKz,
+                customerName = customerName.trim()
+            )
+        )
     }
 
     fun parseItems(json: String): List<HistItem> {
@@ -69,7 +83,6 @@ class StockRepository(context: Context) {
         return try { gson.fromJson(json, type) } catch (e: Exception) { emptyList() }
     }
 
-    /** Desfazer última venda: volta os códigos para available */
     suspend fun undoLastSale(): Boolean {
         val last = historyDao.getLastSale() ?: return false
         val items = parseItems(last.itemsJson)
