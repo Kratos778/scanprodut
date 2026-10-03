@@ -5,6 +5,27 @@ import androidx.room.*
 import kotlinx.coroutines.flow.Flow
 
 @Dao
+interface CatalogDao {
+    @Query("SELECT * FROM catalog ORDER BY category, name")
+    fun getAll(): Flow<List<CatalogItem>>
+
+    @Query("SELECT * FROM catalog WHERE id = :id LIMIT 1")
+    suspend fun getById(id: Long): CatalogItem?
+
+    @Insert
+    suspend fun insert(item: CatalogItem): Long
+
+    @Update
+    suspend fun update(item: CatalogItem)
+
+    @Delete
+    suspend fun delete(item: CatalogItem)
+
+    @Query("DELETE FROM catalog")
+    suspend fun deleteAll()
+}
+
+@Dao
 interface ProductDao {
     @Query("SELECT * FROM products ORDER BY category, name")
     fun getAll(): Flow<List<Product>>
@@ -36,11 +57,8 @@ interface ProductDao {
     @Query("SELECT COUNT(*) FROM products WHERE status = 'available'")
     fun countAvailable(): Flow<Int>
 
-    @Query("SELECT COUNT(*) FROM products WHERE status = 'available' AND category = :cat")
-    suspend fun countAvailableInCategory(cat: String): Int
-
-    @Query("SELECT DISTINCT category FROM products ORDER BY category")
-    fun getCategories(): Flow<List<String>>
+    @Query("SELECT COUNT(*) FROM products WHERE status = 'available' AND catalogId = :catalogId")
+    suspend fun countAvailableByCatalog(catalogId: Long): Int
 }
 
 @Dao
@@ -61,8 +79,13 @@ interface HistoryDao {
     suspend fun deleteAll()
 }
 
-@Database(entities = [Product::class, HistoryEntry::class], version = 3, exportSchema = false)
+@Database(
+    entities = [CatalogItem::class, Product::class, HistoryEntry::class],
+    version = 4,
+    exportSchema = false
+)
 abstract class AppDatabase : RoomDatabase() {
+    abstract fun catalogDao(): CatalogDao
     abstract fun productDao(): ProductDao
     abstract fun historyDao(): HistoryDao
 
