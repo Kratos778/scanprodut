@@ -59,9 +59,6 @@ interface ProductDao {
 
     @Query("SELECT COUNT(*) FROM products WHERE status = 'available' AND catalogId = :catalogId")
     suspend fun countAvailableByCatalog(catalogId: Long): Int
-
-    @Query("SELECT * FROM history WHERE type = 'out' AND timestamp >= :fromTs ORDER BY timestamp DESC")
-    suspend fun salesSince(fromTs: Long): List<HistoryEntry>
 }
 
 @Dao
