@@ -22,11 +22,26 @@ jobs:
           gradle-version: 8.7
 
       - name: Build Debug APK
-        run: gradle assembleDebug --no-daemon
+        run: |
+          set +e
+          gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee build_log.txt
+          STATUS=${PIPESTATUS[0]}
+          echo "===== ERROS DE COMPILAÇÃO ====="
+          grep -E "^e: |error:|Unresolved reference|FAILED" build_log.txt || true
+          echo "===== FIM DOS ERROS ====="
+          exit $STATUS
 
       - name: Upload APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: stock-scan-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+      - name: Upload build log (se falhou)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build_log.txt
