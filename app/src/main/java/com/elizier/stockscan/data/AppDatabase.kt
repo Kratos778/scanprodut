@@ -45,11 +45,22 @@ interface ProductDao {
     @Update
     suspend fun update(product: Product)
 
+    /** Actualiza nome/categoria/preço/custo em TODAS as unidades desse catálogo (ainda available) */
+    @Query("""
+        UPDATE products SET name = :name, category = :category, price = :price, cost = :cost
+        WHERE catalogId = :catalogId AND status = 'available'
+        """)
+    suspend fun syncFromCatalog(catalogId: Long, name: String, category: String, price: Int, cost: Int): Int
+
     @Query("UPDATE products SET status = 'sold', soldAt = :soldAt, soldTo = :customer WHERE code = :code AND status = 'available'")
     suspend fun markSold(code: String, soldAt: Long, customer: String): Int
 
     @Delete
     suspend fun delete(product: Product)
+
+    /** Apaga unidades (available) ligadas ao catálogo */
+    @Query("DELETE FROM products WHERE catalogId = :catalogId AND status = 'available'")
+    suspend fun deleteAvailableByCatalog(catalogId: Long): Int
 
     @Query("DELETE FROM products")
     suspend fun deleteAll()
@@ -59,6 +70,9 @@ interface ProductDao {
 
     @Query("SELECT COUNT(*) FROM products WHERE status = 'available' AND catalogId = :catalogId")
     suspend fun countAvailableByCatalog(catalogId: Long): Int
+
+    @Query("SELECT COUNT(*) FROM products WHERE catalogId = :catalogId")
+    suspend fun countAllByCatalog(catalogId: Long): Int
 }
 
 @Dao
@@ -84,7 +98,7 @@ interface HistoryDao {
 
 @Database(
     entities = [CatalogItem::class, Product::class, HistoryEntry::class],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
