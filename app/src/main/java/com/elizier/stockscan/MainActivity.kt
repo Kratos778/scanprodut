@@ -9,6 +9,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -57,6 +58,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun StockScanApp(vm: StockViewModel = viewModel()) {
     var tab by remember { mutableIntStateOf(0) }
+    val catalog by vm.catalog.collectAsState(initial = emptyList())
     val available by vm.available.collectAsState(initial = emptyList())
     val sold by vm.sold.collectAsState(initial = emptyList())
     val history by vm.history.collectAsState(initial = emptyList())
@@ -76,83 +78,139 @@ fun StockScanApp(vm: StockViewModel = viewModel()) {
         bottomBar = {
             NavigationBar {
                 NavigationBarItem(selected = tab == 0, onClick = { tab = 0 },
-                    icon = { Icon(Icons.Default.AddBox, null) }, label = { Text("Registar") })
+                    icon = { Icon(Icons.Default.Category, null) }, label = { Text("Catálogo") })
                 NavigationBarItem(selected = tab == 1, onClick = { tab = 1 },
-                    icon = { Icon(Icons.Default.ShoppingCart, null) }, label = { Text("Venda") })
+                    icon = { Icon(Icons.Default.AddBox, null) }, label = { Text("Registar") })
                 NavigationBarItem(selected = tab == 2, onClick = { tab = 2 },
-                    icon = { Icon(Icons.Default.Inventory, null) }, label = { Text("Stock") })
+                    icon = { Icon(Icons.Default.ShoppingCart, null) }, label = { Text("Venda") })
                 NavigationBarItem(selected = tab == 3, onClick = { tab = 3 },
+                    icon = { Icon(Icons.Default.Inventory, null) }, label = { Text("Stock") })
+                NavigationBarItem(selected = tab == 4, onClick = { tab = 4 },
                     icon = { Icon(Icons.Default.History, null) }, label = { Text("Histórico") })
             }
         }
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             when (tab) {
-                0 -> {
+                0 -> CatalogScreen(catalog, vm)
+                1 -> RegisterScreen(catalog, stockCount, vm, context)
+                2 -> {
                     ScannerSection(onCode = { code ->
-                        scope.launch {
-                            vm.handleScanEntry(code)
-                            vibrate(context)
-                        }
-                    })
-                    Button(
-                        onClick = { vm.showManualRegister = true },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
-                    ) {
-                        Text("Registar à mão (escrever código)")
-                    }
-                    Text(
-                        "Stock disponível: $stockCount unidades",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp,
-                        modifier = Modifier.padding(12.dp)
-                    )
-                    Text(
-                        "Cada código só se regista 1 vez. Se já existir ou já foi vendido, a app rejeita.",
-                        color = Color.Gray,
-                        modifier = Modifier.padding(horizontal = 12.dp)
-                    )
-                }
-                1 -> {
-                    ScannerSection(onCode = { code ->
-                        scope.launch {
-                            vm.handleScanSale(code)
-                            vibrate(context)
-                        }
+                        scope.launch { vm.handleScanSale(code); vibrate(context) }
                     })
                     CartSection(cart, vm, onConfirmClick = { vm.showCustomerDialog = true })
                 }
-                2 -> StockScreen(available, sold, stockCount, vm)
-                3 -> HistoryScreen(history, vm)
+                3 -> StockScreen(available, sold, stockCount, vm)
+                4 -> HistoryScreen(history, vm)
             }
         }
     }
 
-    if (vm.showNewProduct) {
-        NewProductDialog(
-            code = vm.pendingCode,
-            onSave = { name, cat, price -> scope.launch { vm.registerNewProduct(name, cat, price) } },
-            onDismiss = { vm.showNewProduct = false; vm.pendingCode = "" }
+    if (vm.showNewCatalog) {
+        CatalogDialog(
+            title = "Novo produto",
+            onSave = { name, cat, price -> scope.launch { vm.addCatalog(name, cat, price) } },
+            onDismiss = { vm.showNewCatalog = false }
         )
     }
-    if (vm.showManualRegister) {
-        ManualRegisterDialog(
-            onSave = { code, name, cat, price -> scope.launch { vm.registerManual(code, name, cat, price) } },
-            onDismiss = { vm.showManualRegister = false }
-        )
-    }
-    if (vm.editProduct != null) {
-        EditProductDialog(
-            product = vm.editProduct!!,
-            onSave = { name, cat, price -> scope.launch { vm.updateProduct(name, cat, price) } },
-            onDismiss = { vm.editProduct = null }
+    if (vm.editCatalog != null) {
+        val item = vm.editCatalog!!
+        CatalogDialog(
+            title = "Editar",
+            initialName = item.name,
+            initialCat = item.category,
+            initialPrice = item.price.toString(),
+            onSave = { name, cat, price -> scope.launch { vm.updateCatalog(name, cat, price) } },
+            onDismiss = { vm.editCatalog = null }
         )
     }
     if (vm.showCustomerDialog) {
         CustomerDialog(
-            onConfirm = { customerName -> scope.launch { vm.confirmSale(customerName) } },
+            onConfirm = { name -> scope.launch { vm.confirmSale(name) } },
             onDismiss = { vm.showCustomerDialog = false }
         )
+    }
+}
+
+@Composable
+fun CatalogScreen(catalog: List<CatalogItem>, vm: StockViewModel) {
+    val scope = rememberCoroutineScope()
+    Column(Modifier.fillMaxSize().padding(8.dp)) {
+        Text("Define o produto 1 vez (nome + preço). Depois só scaneias códigos.",
+            color = Color.Gray, modifier = Modifier.padding(bottom = 8.dp))
+        Button(onClick = { vm.showNewCatalog = true }, modifier = Modifier.fillMaxWidth()) {
+            Text("+ Novo produto")
+        }
+        LazyColumn {
+            items(catalog, key = { it.id }) { item ->
+                ListItem(
+                    headlineContent = { Text(item.name, fontWeight = FontWeight.Bold) },
+                    supportingContent = { Text("${item.category} · ${item.price} Kz") },
+                    trailingContent = {
+                        Row {
+                            IconButton(onClick = { vm.editCatalog = item }) {
+                                Icon(Icons.Default.Edit, null)
+                            }
+                            IconButton(onClick = { scope.launch { vm.deleteCatalog(item) } }) {
+                                Icon(Icons.Default.Delete, null, tint = Color.Red)
+                            }
+                        }
+                    }
+                )
+                HorizontalDivider()
+            }
+        }
+    }
+}
+
+@Composable
+fun RegisterScreen(
+    catalog: List<CatalogItem>,
+    stockCount: Int,
+    vm: StockViewModel,
+    context: android.content.Context
+) {
+    val scope = rememberCoroutineScope()
+    Column(Modifier.fillMaxSize()) {
+        Text("1. Escolhe o produto  2. Scaneia vários códigos",
+            modifier = Modifier.padding(8.dp), color = Color.Gray)
+
+        if (catalog.isEmpty()) {
+            Text("Primeiro cria produtos na aba Catálogo.",
+                modifier = Modifier.padding(16.dp), fontWeight = FontWeight.Bold)
+            return
+        }
+
+        LazyColumn(modifier = Modifier.heightIn(max = 140.dp).padding(horizontal = 8.dp)) {
+            items(catalog, key = { it.id }) { item ->
+                val selected = vm.selectedCatalog?.id == item.id
+                FilterChip(
+                    selected = selected,
+                    onClick = { vm.selectedCatalog = item },
+                    label = { Text("${item.name} · ${item.price} Kz") },
+                    modifier = Modifier.padding(end = 4.dp, bottom = 4.dp)
+                )
+            }
+        }
+
+        val sel = vm.selectedCatalog
+        if (sel != null) {
+            Text("A registar: ${sel.name} (${sel.price} Kz)",
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+                modifier = Modifier.padding(8.dp),
+                color = Color(0xFF0F766E)
+            )
+            ScannerSection(onCode = { code ->
+                scope.launch { vm.handleScanEntry(code); vibrate(context) }
+            })
+        } else {
+            Text("Selecciona um produto em cima para começar a scanear.",
+                modifier = Modifier.padding(16.dp))
+        }
+
+        Text("Stock disponível: $stockCount unidades",
+            fontWeight = FontWeight.Bold, modifier = Modifier.padding(12.dp))
     }
 }
 
@@ -190,7 +248,7 @@ fun CartSection(cart: List<CartItem>, vm: StockViewModel, onConfirmClick: () -> 
     val total = cart.sumOf { it.price }
     Column(Modifier.padding(8.dp)) {
         if (cart.isEmpty()) {
-            Text("Scaneia 1 código de cada vez. Cada unidade só pode ser vendida 1 vez.", color = Color.Gray)
+            Text("Scaneia códigos disponíveis. Cada um só vende 1 vez.", color = Color.Gray)
         } else {
             LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
                 items(cart, key = { it.code }) { item ->
@@ -245,7 +303,7 @@ fun StockScreen(available: List<Product>, sold: List<Product>, stockCount: Int, 
         }
         OutlinedTextField(
             value = search, onValueChange = { search = it },
-            label = { Text("Pesquisar nome ou código") },
+            label = { Text("Pesquisar") },
             modifier = Modifier.fillMaxWidth(), singleLine = true
         )
         LazyColumn {
@@ -267,13 +325,8 @@ fun StockScreen(available: List<Product>, sold: List<Product>, stockCount: Int, 
                         },
                         trailingContent = {
                             if (p.status == "available") {
-                                Row {
-                                    IconButton(onClick = { vm.editProduct = p }) {
-                                        Icon(Icons.Default.Edit, null)
-                                    }
-                                    IconButton(onClick = { scope.launch { vm.deleteProduct(p) } }) {
-                                        Icon(Icons.Default.Delete, null, tint = Color.Red)
-                                    }
+                                IconButton(onClick = { scope.launch { vm.deleteProduct(p) } }) {
+                                    Icon(Icons.Default.Delete, null, tint = Color.Red)
                                 }
                             }
                         }
@@ -308,77 +361,32 @@ fun HistoryScreen(history: List<HistoryEntry>, vm: StockViewModel) {
 }
 
 @Composable
-fun NewProductDialog(code: String, onSave: (String, String, Int) -> Unit, onDismiss: () -> Unit) {
-    var name by remember { mutableStateOf("") }
-    var cat by remember { mutableStateOf("") }
-    var price by remember { mutableStateOf("") }
+fun CatalogDialog(
+    title: String,
+    initialName: String = "",
+    initialCat: String = "",
+    initialPrice: String = "",
+    onSave: (String, String, Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var name by remember { mutableStateOf(initialName) }
+    var cat by remember { mutableStateOf(initialCat) }
+    var price by remember { mutableStateOf(initialPrice) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Registar produto") },
+        title = { Text(title) },
         text = {
             Column {
-                Text("Código: $code", fontWeight = FontWeight.Bold)
-                Text("Este código só pode ser registado UMA vez.", style = MaterialTheme.typography.bodySmall)
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nome") }, singleLine = true)
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nome (ex: Gin)") }, singleLine = true)
                 OutlinedTextField(value = cat, onValueChange = { cat = it }, label = { Text("Categoria") }, singleLine = true)
                 OutlinedTextField(value = price, onValueChange = { price = it }, label = { Text("Preço (Kz)") }, singleLine = true)
             }
         },
         confirmButton = {
             Button(onClick = {
-                if (name.isNotBlank() && cat.isNotBlank()) onSave(name.trim(), cat.trim(), price.toIntOrNull() ?: 0)
+                if (name.isNotBlank() && cat.isNotBlank())
+                    onSave(name.trim(), cat.trim(), price.toIntOrNull() ?: 0)
             }) { Text("Guardar") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }
-    )
-}
-
-@Composable
-fun ManualRegisterDialog(onSave: (String, String, String, Int) -> Unit, onDismiss: () -> Unit) {
-    var code by remember { mutableStateOf("") }
-    var name by remember { mutableStateOf("") }
-    var cat by remember { mutableStateOf("") }
-    var price by remember { mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Registar à mão") },
-        text = {
-            Column {
-                OutlinedTextField(value = code, onValueChange = { code = it }, label = { Text("Código de barras") }, singleLine = true)
-                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nome") }, singleLine = true)
-                OutlinedTextField(value = cat, onValueChange = { cat = it }, label = { Text("Categoria") }, singleLine = true)
-                OutlinedTextField(value = price, onValueChange = { price = it }, label = { Text("Preço (Kz)") }, singleLine = true)
-            }
-        },
-        confirmButton = {
-            Button(onClick = {
-                if (code.isNotBlank() && name.isNotBlank() && cat.isNotBlank())
-                    onSave(code.trim(), name.trim(), cat.trim(), price.toIntOrNull() ?: 0)
-            }) { Text("Guardar") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }
-    )
-}
-
-@Composable
-fun EditProductDialog(product: Product, onSave: (String, String, Int) -> Unit, onDismiss: () -> Unit) {
-    var name by remember { mutableStateOf(product.name) }
-    var cat by remember { mutableStateOf(product.category) }
-    var price by remember { mutableStateOf(product.price.toString()) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Editar") },
-        text = {
-            Column {
-                Text("Código: ${product.code} (não muda)")
-                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nome") }, singleLine = true)
-                OutlinedTextField(value = cat, onValueChange = { cat = it }, label = { Text("Categoria") }, singleLine = true)
-                OutlinedTextField(value = price, onValueChange = { price = it }, label = { Text("Preço (Kz)") }, singleLine = true)
-            }
-        },
-        confirmButton = {
-            Button(onClick = { onSave(name.trim(), cat.trim(), price.toIntOrNull() ?: 0) }) { Text("Guardar") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }
     )
@@ -392,7 +400,7 @@ fun CustomerDialog(onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
         title = { Text("Nome do cliente") },
         text = {
             Column {
-                Text("Obrigatório. Os códigos passam para a lista negra.")
+                Text("Obrigatório. Códigos passam para lista negra.")
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Cliente") },
                     singleLine = true, modifier = Modifier.fillMaxWidth())
